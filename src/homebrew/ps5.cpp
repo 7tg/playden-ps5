@@ -360,6 +360,17 @@ int main() {
         playden::LibraryCache library_cache(library_storage);
         playden::LibraryService library_service(library_backend,library_sessions,&library_cache);
         playden::PreferencesStore preferences(library_storage);
+        {
+            // A download resumed at startup starts before the UI has loaded the settings: it reads the saved ones.
+            const auto saved = preferences.Load().preferences;
+            downloads_slow_network.store(saved.downloads_slow_network);
+            {
+                std::lock_guard lock(download_server_mutex);
+                download_server = saved.download_server;
+            }
+            const std::lock_guard<std::mutex> guard(content_language_lock);
+            content_language = saved.content_language;
+        }
         playden::OrganizationStore organization(library_storage);
         playden::app::PersistenceService persistence(preferences,organization);
         playden::steam::CmClient details_cm(paths.trust_store, library_storage);
@@ -918,12 +929,13 @@ int main() {
             const auto dispatched = hui::sys::monotonic_us();
 #if !PLAYDEN_UI_SIMULATION
             services.Tick();
-            downloads_slow_network.store(simulation.state().downloads_slow_network);
-            {
-                std::lock_guard lock(download_server_mutex);
-                download_server = simulation.state().download_server;
-            }
-            {
+            // Until the UI has the saved settings, its defaults would replace them.
+            if (simulation.PreferencesLoaded()) {
+                downloads_slow_network.store(simulation.state().downloads_slow_network);
+                {
+                    std::lock_guard lock(download_server_mutex);
+                    download_server = simulation.state().download_server;
+                }
                 const std::lock_guard<std::mutex> guard(content_language_lock);
                 content_language = simulation.state().content_language;
             }

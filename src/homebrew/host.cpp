@@ -553,6 +553,17 @@ int main(int argc, char** argv) {
         library_cache = std::make_unique<playden::LibraryCache>(*library_storage);
         library_service = std::make_unique<playden::LibraryService>(*library_backend,*library_sessions,library_cache.get());
         preferences=std::make_unique<playden::PreferencesStore>(*library_storage);
+        {
+            // A download resumed at startup starts before the UI has loaded the settings: it reads the saved ones.
+            const auto saved = preferences->Load().preferences;
+            download_tuning_state.downloads_slow_network.store(saved.downloads_slow_network);
+            {
+                std::lock_guard lock(download_tuning_state.mutex);
+                download_tuning_state.download_server = saved.download_server;
+            }
+            const std::lock_guard<std::mutex> guard(content_language_lock);
+            content_language = saved.content_language;
+        }
         organization=std::make_unique<playden::OrganizationStore>(*library_storage);
         persistence=std::make_unique<playden::app::PersistenceService>(*preferences,*organization);
         details_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
@@ -820,12 +831,13 @@ int main(int argc, char** argv) {
             static_cast<float>(now_us - last_render_us) / 1000000.0F;
         last_render_us = now_us;
         if (services) services->Tick();
-        download_tuning_state.downloads_slow_network.store(simulation.state().downloads_slow_network);
-        {
-            std::lock_guard lock(download_tuning_state.mutex);
-            download_tuning_state.download_server = simulation.state().download_server;
-        }
-        {
+        // Until the UI has the saved settings, its defaults would replace them.
+        if (simulation.PreferencesLoaded()) {
+            download_tuning_state.downloads_slow_network.store(simulation.state().downloads_slow_network);
+            {
+                std::lock_guard lock(download_tuning_state.mutex);
+                download_tuning_state.download_server = simulation.state().download_server;
+            }
             const std::lock_guard<std::mutex> guard(content_language_lock);
             content_language = simulation.state().content_language;
         }
