@@ -79,12 +79,43 @@ struct AppDetails {
   Update update;
 };
 
+// One install choice whose exact size is asked for: a version (Steam branch, "public" by default) and a
+// content language.
+struct SizeRequest {
+  GameId id;
+  std::string branch;
+  std::string language;
+  bool operator==(const SizeRequest& other) const {
+    return id == other.id && branch == other.branch && language == other.language;
+  }
+  bool operator<(const SizeRequest& other) const {
+    if (!(id == other.id)) return id < other.id;
+    return branch != other.branch ? branch < other.branch : language < other.language;
+  }
+};
+
+// The size an install of that choice has once its depots are merged, from their manifests. Steam's figures add
+// up each depot, so depots holding the same files count them twice.
+struct MeasuredSize {
+  SizeRequest request;
+  std::uint64_t account_generation = 0;
+  // False: Steam's figures are right as they are (nothing overlaps enough to matter), or the check failed.
+  bool measured = false;
+  bool failed = false;  // the check could not finish (no session, the network); asking again may work
+  std::uint64_t install_bytes = 0;
+  std::uint64_t download_bytes = 0;
+};
+
 // Runs on the service worker; may block on the network.
 class AppDetailsSource {
  public:
   virtual ~AppDetailsSource() = default;
   virtual std::vector<AppDetails> Fetch(const StoredSession& session, const std::vector<GameId>& ids,
                                         const std::atomic<bool>& cancel) = 0;
+  // Runs on its own worker, at the same time as Fetch. Default: Steam's figures stand.
+  virtual MeasuredSize Measure(const StoredSession&, const SizeRequest& request, const std::atomic<bool>&) {
+    return {request};
+  }
 };
 
 // Fetches app details for games the player opens. Requests are deduplicated and cached for the
@@ -102,6 +133,10 @@ class AppDetailsService {
   void Refresh(GameId id, std::uint64_t account_generation);
   void Invalidate(std::uint64_t account_generation);
   std::vector<AppDetails> Pump(std::size_t maximum = 8);
+  // Asks for the exact size of one install choice, after the details already asked for. A choice already
+  // queued or being checked is not asked twice.
+  void Measure(SizeRequest request, std::uint64_t account_generation);
+  std::vector<MeasuredSize> PumpMeasured();
   void Shutdown();
 
   static constexpr std::size_t kMaxPending = 64;
@@ -109,6 +144,7 @@ class AppDetailsService {
 
  private:
   void Run();
+  void RunMeasures();
 
   AppDetailsSource& source_;
   SessionRepository& sessions_;
@@ -118,9 +154,14 @@ class AppDetailsService {
   std::deque<GameId> pending_;
   std::set<GameId> requested_;  // queued, in flight or answered for this generation
   std::deque<AppDetails> results_;
+  std::deque<SizeRequest> measure_pending_;
+  std::set<SizeRequest> measure_requested_;  // queued or in flight
+  std::deque<MeasuredSize> measured_;
   std::atomic<bool> cancel_{false};
+  std::atomic<bool> measure_cancel_{false};
   bool stopping_ = false;
   std::thread worker_;
+  std::thread measure_worker_;  // size checks: the source's Measure runs here, beside Fetch
 };
 
 }  // namespace playden::steam

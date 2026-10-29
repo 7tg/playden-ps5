@@ -441,6 +441,9 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::OrganizationStore> organization;
     std::unique_ptr<playden::app::PersistenceService> persistence;
     std::unique_ptr<playden::steam::CmClient> details_cm;
+    std::unique_ptr<playden::steam::CmClient> sizes_cm;
+    std::unique_ptr<playden::steam::CdnClient> details_cdn;
+    std::unique_ptr<playden::steam::DepotInstaller> details_measurer;
     std::unique_ptr<playden::steam::CmAppDetailsSource> details_source;
     std::unique_ptr<playden::LocalSessionRepository> details_sessions;
     std::unique_ptr<playden::steam::AppDetailsService> app_details;
@@ -569,7 +572,17 @@ int main(int argc, char** argv) {
         details_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         details_cm->SetOwner("details");
         details_cm->SetSharedSession(steam_cm);
+        // The install sheet's exact sizes: manifests through the details connection, never written anywhere.
+        sizes_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
+        sizes_cm->SetOwner("sizes");
+        sizes_cm->SetSharedSession(steam_cm);
+        details_cdn = std::make_unique<playden::steam::CdnClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        details_measurer = std::make_unique<playden::steam::DepotInstaller>(*sizes_cm, *details_cdn);
         details_source = std::make_unique<playden::steam::CmAppDetailsSource>(*details_cm);
+        details_source->SetMeasurer(details_measurer.get(), sizes_cm.get());
+        details_source->SetLog([log_directory](std::uint32_t app, const char* step, const char* result, const std::string& detail) {
+            playden::app::AppendLogLine(log_directory, "install.log", "app=" + std::to_string(app) + " step=" + step + " result=" + result + " detail=" + detail);
+        });
         details_source->SetLicensedDepots(&licensed_depots);
         details_source->SetContentLanguage([] { return selected_content_language(); });
         // Installed games' records, for their updates; the install service is made below and joined after the

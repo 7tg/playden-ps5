@@ -457,6 +457,8 @@ void live_install_confirmation_checks_space_and_unknowns() {
     activate(model, "details-install");
     check(model.view().surface == "install" && !find_row(model, "install-confirm")->enabled,
           "a game that does not fit opens the install sheet without a usable Install");
+    // Its exact size has nothing to change (the controller answers so for a game without overlapping parts).
+    for (const auto& size_check : model.TakeSizeChecks()) model.UpdateMeasuredSize(size_check, false, false, {});
     check(model.view().subtitle.find("Not enough space") != std::string::npos, "the sheet says why");
     check(model.TakeInstallRequests().empty(), "nothing is queued while it does not fit");
 
@@ -697,6 +699,65 @@ void live_install_language_size() {
     check(model.view().surface == "install" && model.view().subtitle.find("Needs about 1.5 GB") != std::string::npos,
           "Russian: its own size");
     check(!find_row(model, "install-confirm")->enabled, "and that size is the one checked");
+}
+
+// Steam's figures add up each part of a game; the sheet asks for the exact size of the chosen version and language,
+// and a game that only fits by it can install once it is known.
+void live_install_exact_size() {
+    using playden::homebrew::GameVersion;
+    using playden::homebrew::SizeCheckRequest;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(SteamId(400), "Portal")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateVolumes({{"internal", "Console storage", true, 2'000'000'000, 1'000'000'000}}, "internal");
+    GameVersion version{"public", "", 1760000000, 9000, 900'000'000, 1'500'000'000, {}};
+    version.languages = {{"english", 900'000'000, 1'500'000'000}, {"russian", 1'000'000'000, 1'600'000'000}};
+    model.UpdateAppDetails(SteamId(400), 900'000'000, 1'500'000'000, true, {"english", "russian"}, 0, {version});
+    check(model.action("details:400"), "details open");
+    activate(model, "details-install");
+    auto checks = model.TakeSizeChecks();
+    check(checks.size() == 1 && checks[0].id == SteamId(400) && checks[0].branch == "public" && checks[0].language == "english",
+          "the sheet asks for its choice's exact size");
+    check(model.view().subtitle.find("Needs about 1.5 GB") != std::string::npos &&
+              model.view().subtitle.find("Checking its exact size") != std::string::npos &&
+              !find_row(model, "install-confirm")->enabled && find_row(model, "install-confirm")->subtitle == "Checking size",
+          "Steam's sum doesn't fit: the sheet waits for the exact size");
+    check(model.TakeSizeChecks().empty(), "asked once");
+    model.UpdateMeasuredSize(checks[0], true, false, {600'000'000, 400'000'000});
+    check(model.view().subtitle.find("Needs 600 MB") != std::string::npos && find_row(model, "install-confirm")->enabled,
+          "the exact size fits");
+    // Another language is another check; one that fails keeps Steam's sum and isn't asked again while the sheet is open.
+    activate(model, "install-language");
+    activate(model, "install-language-russian");
+    checks = model.TakeSizeChecks();
+    check(checks.size() == 1 && checks[0].language == "russian", "Russian is checked too");
+    model.UpdateMeasuredSize(checks[0], false, true, {});
+    check(model.view().subtitle.find("Needs about 1.6 GB") != std::string::npos &&
+              model.view().subtitle.find("Not enough space") != std::string::npos && !find_row(model, "install-confirm")->enabled,
+          "a failed check keeps Steam's sum");
+    check(model.TakeSizeChecks().empty(), "not asked again while the sheet is open");
+    model.action("circle");
+    activate(model, "details-install");
+    activate(model, "install-language");
+    activate(model, "install-language-russian");
+    checks = model.TakeSizeChecks();
+    check(checks.size() == 1 && checks[0].language == "russian", "asked again when the sheet opens next");
+    // The service dropped it (the language changed in Settings): asked again.
+    model.ResetSizeChecks();
+    checks = model.TakeSizeChecks();
+    check(checks.size() == 1 && checks[0].language == "russian", "a dropped check is asked again");
+    // Nothing to measure: Steam's figures stand, and the sheet says so as before.
+    model.UpdateMeasuredSize(checks[0], false, false, {});
+    check(model.view().subtitle.find("Not enough space") != std::string::npos, "a choice with nothing to check keeps Steam's sum");
+    check(model.TakeSizeChecks().empty(), "answered: not asked again");
+    // New details (a newer build) forget the game's exact sizes: the sheet checks again.
+    model.UpdateAppDetails(SteamId(400), 900'000'000, 1'500'000'000, true, {"english", "russian"}, 0, {version});
+    checks = model.TakeSizeChecks();
+    check(checks.size() == 1 && checks[0].language == "russian", "new details are checked again");
+    activate(model, "install-language");
+    activate(model, "install-language-english");
+    model.TakeSizeChecks();
+    check(model.view().subtitle.find("Needs about 1.5 GB") != std::string::npos, "the old exact size is gone");
 }
 
 // A branch named in lower case shows as the picker shows it.
@@ -3790,6 +3851,7 @@ int main() {
     live_install_language_row();
     live_install_version_row();
     live_install_language_size();
+    live_install_exact_size();
     live_install_version_title();
     live_install_dlc_row();
     leftover_titles_require_confirmation_and_follow_the_queue();

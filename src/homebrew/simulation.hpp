@@ -15,6 +15,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <tuple>
 #include <string>
 #include <vector>
 
@@ -476,6 +477,22 @@ struct GameVersion {
     std::vector<LanguageSize> languages;
 };
 
+struct InstallAssessment;  // storage_sim.hpp
+
+// One install choice's size measured from its manifests: Steam's figures add up each depot, so depots holding the
+// same files count them twice.
+struct MeasuredInstallSize {
+    std::uint64_t install_bytes = 0;
+    std::uint64_t download_bytes = 0;
+};
+
+// A size check the install sheet asks for: a version (Steam branch) and a content language.
+struct SizeCheckRequest {
+    GameId id;
+    std::string branch;
+    std::string language;
+};
+
 // An installed game's update, from Steam app info compared with its install record.
 struct GameUpdate {
     bool newer = false;    // a newer version of the game's content
@@ -842,6 +859,13 @@ public:
     bool UpdateLibrary(LibraryUpdate update);
     // Live mode: requests for the real install service, and its state for display.
     [[nodiscard]] std::vector<InstallRequest> TakeInstallRequests();
+    // Live mode: the exact sizes the install sheet asks for, and the answers. `measured` false: Steam's figures
+    // stand (nothing to check, or the check failed; `failed` lets the sheet ask again when it opens next).
+    [[nodiscard]] std::vector<SizeCheckRequest> TakeSizeChecks();
+    void UpdateMeasuredSize(const SizeCheckRequest& request, bool measured, bool failed, MeasuredInstallSize size);
+    // The details service dropped what it was asked (another account, or the language changed): checks
+    // still waiting for an answer are asked again.
+    void ResetSizeChecks();
     void UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed,
                         const std::vector<LiveCompletedDownload>& completed = {});
     // Live mode: Steam Cloud save requests for the cloud service, and its state for display.
@@ -1148,6 +1172,12 @@ private:
     int queue_focus_index_ = 0;  // Queue: the focused row's place, for when that row goes away
     bool queue_shown_ = false;   // Queue was on screen at the last rebuild
     std::string queue_return_focus_;  // Queue: the row a game page was opened from, focused again on Back
+    // Install sheet size checks by (game, branch, language): asked and not answered, and the answers.
+    std::vector<SizeCheckRequest> size_checks_;
+    std::set<std::tuple<GameId, std::string, std::string>> size_checks_running_;
+    std::set<std::tuple<GameId, std::string, std::string>> size_checks_answered_;
+    std::set<std::tuple<GameId, std::string, std::string>> size_checks_failed_;  // not asked again until the sheet reopens
+    std::map<std::tuple<GameId, std::string, std::string>, MeasuredInstallSize> measured_sizes_;
     std::string settings_focus_section_;
 
     struct OrganizationJournalEntry {
@@ -1351,6 +1381,12 @@ private:
     // The version chosen in the install sheet for `id`, when it is not the public one.
     [[nodiscard]] const GameVersion* install_version(GameId id) const;
     [[nodiscard]] const GameVersion* install_sized_version(GameId id) const;
+    // The install sheet's choice for `id` as a size check names it, and its measured size once known.
+    [[nodiscard]] SizeCheckRequest install_size_check(GameId id) const;
+    [[nodiscard]] const MeasuredInstallSize* measured_install_size(GameId id) const;
+    [[nodiscard]] bool install_size_checking(GameId id) const;
+    // The live install sheet's fit check: the chosen version, language and drive, with the measured size.
+    [[nodiscard]] InstallAssessment install_assessment(GameId id) const;
     [[nodiscard]] std::vector<std::string> live_install_sheet_actions(GameId id) const;
     // An installed game's update on its own drive: whether it can start, and the words the sheet shows.
     struct UpdateCheck {

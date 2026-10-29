@@ -28,7 +28,24 @@ class Source final : public AppDetailsSource {
  public:
   std::mutex mutex;
   std::vector<std::vector<GameId>> calls;
+  std::vector<SizeRequest> measures;
   std::atomic<bool> fail{false};
+  std::atomic<bool> hold{false};  // a size check that waits (on manifests) until released or canceled
+  MeasuredSize Measure(const StoredSession&, const SizeRequest& request, const std::atomic<bool>& cancel) override {
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      measures.push_back(request);
+    }
+    while (hold && !cancel) std::this_thread::sleep_for(1ms);
+    MeasuredSize result{request};
+    if (fail) {
+      result.failed = true;
+      return result;
+    }
+    result.measured = true;
+    result.install_bytes = *request.id.steam_app() * 7ull;
+    return result;
+  }
   std::vector<AppDetails> Fetch(const StoredSession&, const std::vector<GameId>& ids,
                                 const std::atomic<bool>&) override {
     {
@@ -126,6 +143,106 @@ void FailuresAreRetryable() {
   service.Request(SteamId(9), 1);
   const auto recovered = Await(service, 1);
   assert(recovered[0].available && recovered[0].download_bytes == 90u);
+}
+
+std::vector<MeasuredSize> AwaitMeasured(AppDetailsService& service, std::size_t count) {
+  std::vector<MeasuredSize> all;
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (all.size() < count && std::chrono::steady_clock::now() < deadline) {
+    for (auto& size : service.PumpMeasured()) all.push_back(std::move(size));
+    std::this_thread::sleep_for(1ms);
+  }
+  assert(all.size() >= count);
+  return all;
+}
+
+// An install choice's exact size is asked once while it is queued or checked; answered, it can be asked again (the
+// sheet decides when), and so can one that failed.
+void SizeChecksAreAnsweredOncePerChoice() {
+  Sessions sessions;
+  Source source;
+  AppDetailsService service(source, sessions);
+  service.Measure({SteamId(400), "public", "english"}, 1);
+  service.Measure({SteamId(400), "public", "english"}, 1);
+  const auto first = AwaitMeasured(service, 1);
+  assert(first.size() == 1 && first[0].measured && first[0].install_bytes == 2800u && first[0].account_generation == 1);
+  assert(first[0].request == (SizeRequest{SteamId(400), "public", "english"}));
+  {
+    std::lock_guard<std::mutex> lock(source.mutex);
+    assert(source.measures.size() == 1);
+  }
+  service.Measure({SteamId(400), "beta", "english"}, 1);
+  const auto second = AwaitMeasured(service, 1);
+  assert(second.size() == 1 && second[0].request.branch == "beta");
+  service.Measure({SteamId(400), "public", "english"}, 1);
+  assert(AwaitMeasured(service, 1)[0].request.branch == "public");
+  source.fail = true;
+  service.Measure({SteamId(401), "public", "english"}, 1);
+  assert(AwaitMeasured(service, 1)[0].failed);
+  source.fail = false;
+  service.Measure({SteamId(401), "public", "english"}, 1);
+  const auto retried = AwaitMeasured(service, 1);
+  assert(retried[0].measured && retried[0].install_bytes == 2807u);
+  // Another account asks again.
+  service.Measure({SteamId(400), "public", "english"}, 2);
+  assert(AwaitMeasured(service, 1)[0].account_generation == 2);
+}
+
+// A size check waiting on manifests doesn't hold up a game's details: they have their own worker.
+void SlowSizeChecksDontBlockDetails() {
+  Sessions sessions;
+  Source source;
+  source.hold = true;
+  AppDetailsService service(source, sessions);
+  service.Measure({SteamId(400), "public", "english"}, 1);
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  for (;;) {
+    {
+      std::lock_guard<std::mutex> lock(source.mutex);
+      if (!source.measures.empty()) break;
+    }
+    assert(std::chrono::steady_clock::now() < deadline);
+    std::this_thread::sleep_for(1ms);
+  }
+  service.Request(SteamId(2005010), 1);
+  const auto details = Await(service, 1);
+  assert(details[0].id == SteamId(2005010) && details[0].available);
+  assert(service.PumpMeasured().empty());
+  source.hold = false;
+  assert(AwaitMeasured(service, 1)[0].measured);
+}
+
+// Only a selection whose merged size can be far from Steam's sum is worth its manifests: two depots or more of
+// kMeasureDepotBytes. Portal's 401 and 409 hold mostly the same files.
+void LargeOverlappingDepotsAreMeasured() {
+  const std::string portal = R"("appinfo"
+{
+  "appid" "400"
+  "common" { "name" "Portal" "type" "Game" }
+  "config" { "launch" { "0" { "executable" "portal.exe" "config" { "oslist" "windows" } } } }
+  "depots"
+  {
+    "401" { "config" { "oslist" "windows" } "manifests" { "public" { "gid" "1" "size" "4184288203" "download" "2520000000" } } }
+    "402" { "config" { "oslist" "windows" "language" "russian" } "manifests" { "public" { "gid" "2" "size" "160000000" "download" "90000000" } } }
+    "409" { "manifests" { "public" { "gid" "9" "size" "3850000000" "download" "2360000000" } } }
+  }
+})";
+  const auto english = DepotsToMeasure(400, portal, std::nullopt, "public", "english");
+  assert(english.size() == 2 && english[0].id == 401 && english[1].id == 409 && english[1].manifest_gid == 9u);
+  const auto russian = DepotsToMeasure(400, portal, std::nullopt, "", "russian");
+  assert(russian.size() == 3);
+  const std::string small = R"("appinfo"
+{
+  "appid" "440"
+  "common" { "name" "Synthetic" "type" "Game" }
+  "depots"
+  {
+    "441" { "config" { "oslist" "windows" } "manifests" { "public" { "gid" "1" "size" "4000000000" } } }
+    "442" { "config" { "oslist" "windows" "language" "german" } "manifests" { "public" { "gid" "2" "size" "30000000" } } }
+  }
+})";
+  assert(DepotsToMeasure(440, small, std::nullopt, "public", "german").empty());
+  assert(DepotsToMeasure(440, "not vdf {", std::nullopt, "public", "english").empty());
 }
 
 void AppInfoBecomesWindowsEstimate() {
@@ -429,6 +546,9 @@ void InstalledGamesCompareWithTheirRecord() {
 }
 
 int main() {
+  SizeChecksAreAnsweredOncePerChoice();
+  SlowSizeChecksDontBlockDetails();
+  LargeOverlappingDepotsAreMeasured();
   SizesCountOnlyLicensedDepots();
   RequestsAreDeduplicatedPerGeneration();
   NewGenerationDropsResultsAndRefetches();

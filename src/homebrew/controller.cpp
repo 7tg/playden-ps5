@@ -2118,11 +2118,16 @@ void Controller::TickStoreDetails() {
                               std::move(details.controller_support));
 }
 void Controller::TickAppDetails() {
-  if (!app_details_) return;
+  if (!app_details_) {
+    // Nothing measures sizes: Steam's figures stand.
+    for (const auto& check : model_.TakeSizeChecks()) model_.UpdateMeasuredSize(check, false, false, {});
+    return;
+  }
   const auto& state = model_.state();
   const auto generation = state.account_generation;
   if (generation != requested_generation_) {
     app_details_->Invalidate(generation);
+    model_.ResetSizeChecks();
     requested_generation_ = generation;
     requested_detail_.reset();
     launch_options_.clear();
@@ -2138,6 +2143,7 @@ void Controller::TickAppDetails() {
     // a fetch starts and the host passes the new one on after this tick, so ask again next tick.
     requested_language_ = state.content_language;
     app_details_->Invalidate(generation);
+    model_.ResetSizeChecks();
     requested_detail_.reset();
     reissue_after_language_ = true;
     return;
@@ -2192,6 +2198,18 @@ void Controller::TickAppDetails() {
       launch_options_reason_[details.id] = details.reason.empty() ? "Steam details are unavailable right now." : details.reason;
     }
     if (prepare_after_details_.erase(details.id) && runtime_) SubmitPrepare(details.id);
+  }
+  // The install sheet's exact sizes: the chosen version and language, from their manifests.
+  const bool signed_in = model_.state().account().authentication == AuthState::SignedIn;
+  for (const auto& check : model_.TakeSizeChecks()) {
+    auto* details = Details(check.id.store);
+    if (signed_in && details == app_details_) details->Measure({check.id, check.branch, check.language}, generation);
+    else model_.UpdateMeasuredSize(check, false, !signed_in, {});
+  }
+  for (const auto& size : app_details_->PumpMeasured()) {
+    if (size.account_generation != generation) continue;
+    model_.UpdateMeasuredSize({size.request.id, size.request.branch, size.request.language}, size.measured, size.failed,
+                              {size.install_bytes, size.download_bytes});
   }
 }
 void Controller::RequestPrepare(GameId id) {

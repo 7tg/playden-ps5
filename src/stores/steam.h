@@ -82,6 +82,10 @@ class SteamDetailsSource final : public DetailsSource {
   }
   void Invalidate(std::uint64_t generation) override { service_.Invalidate(generation); }
   std::vector<GameDetails> Pump(std::size_t maximum) override { return service_.Pump(maximum); }
+  void Measure(const steam::SizeRequest& request, std::uint64_t generation) override {
+    if (request.id.steam_app()) service_.Measure(request, generation);
+  }
+  std::vector<steam::MeasuredSize> PumpMeasured() override { return service_.PumpMeasured(); }
   void Shutdown() override { service_.Shutdown(); }
 
  private:

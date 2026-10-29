@@ -376,7 +376,17 @@ int main() {
         playden::steam::CmClient details_cm(paths.trust_store, library_storage);
         details_cm.SetOwner("details");
         details_cm.SetSharedSession(steam_cm);
+        // The install sheet's exact sizes: manifests through the details connection, never written anywhere.
+        playden::steam::CmClient sizes_cm(paths.trust_store, library_storage);
+        sizes_cm.SetOwner("sizes");
+        sizes_cm.SetSharedSession(steam_cm);
+        playden::steam::CdnClient details_cdn(paths.trust_store);
+        playden::steam::DepotInstaller details_measurer(sizes_cm, details_cdn);
         playden::steam::CmAppDetailsSource details_source(details_cm);
+        details_source.SetMeasurer(&details_measurer, &sizes_cm);
+        details_source.SetLog([](std::uint32_t app, const char* step, const char* result, const std::string& detail) {
+            playden::app::AppendLogLine(log_root, "install.log", "app=" + std::to_string(app) + " step=" + step + " result=" + result + " detail=" + detail);
+        });
         details_source.SetLicensedDepots(&licensed_depots);
         details_source.SetContentLanguage([] { return selected_content_language(); });
         playden::LocalSessionRepository details_sessions(user_root, {}, &session_vault);

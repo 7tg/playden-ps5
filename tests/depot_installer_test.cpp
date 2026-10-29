@@ -1057,6 +1057,62 @@ void InstallsMergedDepotsAndWritesRecord(const std::filesystem::path& root) {
   CHECK(!std::filesystem::exists(root / (std::string(DepotInstaller::kFileTree) + ".tmp")));
 }
 
+// Measure fetches the manifests an install would and merges them as it does, without writing anything: depots
+// holding the same files count them once (Portal's 401 and 409 add up to twice the game).
+void MeasureMatchesTheMergedInstall(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  DepotInstaller installer(world.Hooks());
+  std::atomic<bool> cancel{false};
+  const auto target = Target(root);
+  const auto measured = installer.Measure({}, target.app_id, target.depots, {}, cancel);
+  CHECK(measured.error == InstallError::kNone);
+  CHECK(!std::filesystem::exists(root) && world.chunk_calls == 0);
+  std::uint64_t summed = 0;
+  for (const auto& [id, manifest] : world.manifests)
+    for (const auto& file : manifest.files) summed += file.size;
+  CHECK(measured.install_bytes == 26 + 13 && summed == 26 + 9 + 13);  // the base's level.dat is replaced
+  InstallProgress last;
+  CHECK(installer.Run({}, target, cancel, [&](const InstallProgress& progress) { last = progress; }).error == InstallError::kNone);
+  CHECK(measured.install_bytes == last.install_total && measured.download_bytes == last.download_total);
+  // A depot the account is refused is left out, as an install leaves it; none granted is an error.
+  auto hooks = world.Hooks();
+  hooks.access = [](const StoredSession&, std::uint32_t, const std::vector<DepotRequest>& depots, const std::atomic<bool>&) {
+    DepotAccessResult result;
+    result.error = CmError::kNone;
+    result.grants.push_back({depots[0].depot_id, depots[0].manifest_gid, kKey, 77});
+    result.skipped.push_back(depots[1].depot_id);
+    return result;
+  };
+  DepotInstaller refused(hooks);
+  const auto base_only = refused.Measure({}, target.app_id, target.depots, {}, cancel);
+  CHECK(base_only.error == InstallError::kNone && base_only.install_bytes == 26 + 9 && base_only.partial);
+  CHECK(!measured.partial);
+  hooks.access = [](const StoredSession&, std::uint32_t, const std::vector<DepotRequest>&, const std::atomic<bool>&) {
+    DepotAccessResult result;
+    result.error = CmError::kTimeout;
+    return result;
+  };
+  DepotInstaller offline(hooks);
+  CHECK(offline.Measure({}, target.app_id, target.depots, {}, cancel).error == InstallError::kNetwork);
+  // A manifest that a server failed to send, then came back broken, is a network problem (a later try may work).
+  hooks = world.Hooks();
+  int manifest_calls = 0;
+  hooks.manifest = [&manifest_calls](const ContentServer&, const DepotGrant&, const std::atomic<bool>&, DepotManifest*) {
+    return ++manifest_calls == 1 ? InstallError::kNetwork : InstallError::kCorrupt;
+  };
+  DepotInstaller flaky(hooks);
+  CHECK(flaky.Measure({}, target.app_id, target.depots, {}, cancel).error == InstallError::kNetwork);
+  // A link over a folder can't be merged, for a measure as for an install.
+  ManifestFile link;
+  link.path = "data";
+  link.link_target = "game.exe";
+  world.manifests[442].files.push_back(link);
+  DepotInstaller clash(world.Hooks());
+  CHECK(clash.Measure({}, target.app_id, target.depots, {}, cancel).error == InstallError::kCorrupt);
+  const auto merged = MergeDepotManifests({world.manifests[441], world.manifests[442]});
+  CHECK(merged.conflict == "data");
+}
+
 // A file and an empty folder of the same name in different depots keep the file, in either order; a folder
 // with something inside it still conflicts.
 void FileReplacesEmptyFolderFromOtherDepot(const std::filesystem::path& base) {
@@ -2616,6 +2672,7 @@ int main(int argc, char** argv) {
   StatsAndRemovalLogs(base / "removal");
   RunStats(base / "stats");
   InstallsMergedDepotsAndWritesRecord(base / "install");
+  MeasureMatchesTheMergedInstall(base / "measure");
   LocalRecordNamesItsGame(base / "install-local");
   FileReplacesEmptyFolderFromOtherDepot(base / "file-over-folder");
   ResumesWithoutRefetchingFinishedChunks(base / "resume");

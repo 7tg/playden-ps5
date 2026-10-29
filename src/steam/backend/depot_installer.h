@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -118,6 +119,30 @@ struct InstallOutcome {
   std::vector<std::uint32_t> skipped_depots;  // borrowed depots the account was refused, installed without
 };
 
+// One file an install keeps from its depots: the depot (its index in the merged list) whose entry won.
+struct ManifestPlacement {
+  std::size_t depot = 0;
+  const ManifestFile* file = nullptr;
+};
+
+// The depots' files as an install lays them out. Later depots replace the same path from earlier ones;
+// identical copies stay with the first. A file and a folder of the same name keep the file, as Steam does
+// (Fallout 2's base depot has an empty master.dat folder that its language depot fills with the real
+// master.dat), unless something lands inside the folder. A link is not a file here: it never displaces a
+// folder.
+struct DepotMerge {
+  std::map<std::string, ManifestPlacement> placements;  // by lowercase path; points into the manifests
+  // Each file that took the place of a folder of the same name: its key, then the folder's path.
+  std::vector<std::pair<std::string, std::string>> files_over_folders;
+  std::string conflict;  // a path the depots can't share (a link over a folder, a folder with files over a file)
+  std::uint64_t install_bytes = 0;   // the merged files' bytes: what the install holds
+  std::uint64_t download_bytes = 0;  // their chunks' compressed bytes: what a new install downloads
+};
+// `log` hears how each clash of a file and a folder settled (the result, then both entries: depot, kind,
+// size and path).
+DepotMerge MergeDepotManifests(const std::vector<DepotManifest>& manifests,
+                               const std::function<void(const char* result, const std::string& detail)>& log = {});
+
 // Seams for tests; the defaults use CmClient, CdnClient and the real filesystem.
 struct InstallerHooks {
   struct ChunkFetcher {
@@ -160,6 +185,15 @@ struct InstallerHooks {
   std::function<std::chrono::steady_clock::time_point()> now;
 };
 
+// What installing some depots holds once merged (DepotMerge's sizes), from their manifests.
+struct InstallMeasure {
+  InstallError error = InstallError::kProtocol;
+  std::string detail;  // short and identifier-free
+  std::uint64_t install_bytes = 0;
+  std::uint64_t download_bytes = 0;
+  bool partial = false;  // a depot the account was refused is left out
+};
+
 // Downloads and assembles an app's depots into install_root. Safe to run again after any
 // interruption: finished chunks recorded in the journal are not fetched twice. Runs
 // synchronously on the caller's worker thread.
@@ -185,6 +219,12 @@ class DepotInstaller {
   // (every path either version has, in the file list format, for an uninstall in between). All of it is
   // written before the first staged chunk.
   static constexpr const char* kUpdateDir = installs::kUpdateDirName;
+
+  // The size an install of `depots` (Steam's listing order, from `branch`; empty: public) would have, from
+  // the manifests Run would fetch: depot access, the server list and each manifest, merged. Nothing is
+  // written. A depot the account is refused is left out, as an install leaves it.
+  InstallMeasure Measure(const StoredSession& session, std::uint32_t app_id, const std::vector<DepotInfo>& depots,
+                         const std::string& branch, const std::atomic<bool>& cancel);
 
   // Finishes an update whose files are all staged (phase replacing or deleting): renames them over the
   // game's, deletes the files the new version dropped and the folders that leaves empty (never anything

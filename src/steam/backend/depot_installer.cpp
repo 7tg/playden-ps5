@@ -228,10 +228,7 @@ InstallError FromCm(CmError error) {
   return InstallError::kProtocol;
 }
 
-struct Placement {
-  std::size_t depot = 0;
-  const ManifestFile* file = nullptr;
-};
+using Placement = ManifestPlacement;
 
 std::string JournalKey(std::uint32_t depot, const std::string& path, std::uint64_t offset) {
   return std::to_string(depot) + "\t" + std::to_string(offset) + "\t" + path;
@@ -529,6 +526,57 @@ const char* InstallErrorName(InstallError error) {
   return "protocol";
 }
 
+DepotMerge MergeDepotManifests(const std::vector<DepotManifest>& manifests,
+                               const std::function<void(const char* result, const std::string& detail)>& log) {
+  DepotMerge merged;
+  const auto entry = [&manifests](std::size_t depot, const ManifestFile& file) {
+    std::string text = "depot=" + std::to_string(manifests[depot].depot_id) + " ";
+    if (file.is_directory()) text += "folder";
+    else if (file.is_symlink()) text += "link";
+    else text += "file size=" + std::to_string(file.size);
+    return text + " path=" + file.path;
+  };
+  auto& placements = merged.placements;
+  for (std::size_t depot = 0; depot < manifests.size(); ++depot) {
+    for (const auto& file : manifests[depot].files) {
+      const auto key = Lower(file.path);
+      const auto found = placements.find(key);
+      if (found != placements.end()) {
+        if (SameFile(*found->second.file, file)) continue;
+        if (found->second.file->is_directory() != file.is_directory()) {
+          const auto& folder = file.is_directory() ? file : *found->second.file;
+          const auto& other = file.is_directory() ? *found->second.file : file;
+          const auto detail = entry(found->second.depot, *found->second.file) + " | " + entry(depot, file);
+          if (other.is_symlink()) {
+            if (log) log("link-over-folder", detail);
+            merged.conflict = file.path;
+            return merged;
+          }
+          if (log) log("file-over-folder", detail);
+          merged.files_over_folders.emplace_back(key, folder.path);
+          if (file.is_directory()) continue;
+        }
+      }
+      placements[key] = {depot, &file};
+    }
+  }
+  for (const auto& [key, folder] : merged.files_over_folders) {
+    const auto& winner = placements.at(key);
+    const auto inside = placements.lower_bound(key + "/");
+    if (inside != placements.end() && inside->first.compare(0, key.size() + 1, key + "/") == 0) {
+      if (log) log("folder-not-empty", entry(winner.depot, *winner.file) + " | " + entry(inside->second.depot, *inside->second.file));
+      merged.conflict = winner.file->path;
+      return merged;
+    }
+  }
+  for (const auto& [key, placement] : placements) {
+    if (placement.file->is_directory() || placement.file->is_symlink()) continue;
+    merged.install_bytes += placement.file->size;
+    for (const auto& chunk : placement.file->chunks) merged.download_bytes += chunk.compressed_size;
+  }
+  return merged;
+}
+
 DepotInstaller::DepotInstaller(CmClient& cm, CdnClient& cdn) {
   hooks_.access = [&cm](const StoredSession& session, std::uint32_t app_id,
                         const std::vector<DepotRequest>& depots, const std::atomic<bool>& cancel) {
@@ -588,6 +636,54 @@ DepotInstaller::DepotInstaller(CmClient& cm, CdnClient& cdn) {
 
 DepotInstaller::DepotInstaller(InstallerHooks hooks) : hooks_(std::move(hooks)) {
   if (!hooks_.free_bytes) hooks_.free_bytes = &DefaultFreeBytes;
+}
+
+InstallMeasure DepotInstaller::Measure(const StoredSession& session, std::uint32_t app_id,
+                                      const std::vector<DepotInfo>& depots, const std::string& branch,
+                                      const std::atomic<bool>& cancel) {
+  InstallMeasure measure;
+  const auto fail = [&measure](InstallError error, std::string detail) {
+    measure.error = error;
+    measure.detail = std::move(detail);
+    return measure;
+  };
+  if (app_id == 0 || depots.empty()) return fail(InstallError::kProtocol, "nothing to measure");
+  std::vector<DepotRequest> requests;
+  for (const auto& depot : depots) {
+    if (!depot.manifest_gid || *depot.manifest_gid == 0) return fail(InstallError::kProtocol, "depot without manifest");
+    requests.push_back({depot.id, *depot.manifest_gid, depot.depot_from_app.has_value(), depot.source_app, branch});
+  }
+  const auto access = hooks_.access(session, app_id, requests, cancel);
+  if (!access.ok()) return fail(FromCm(access.error), access.detail.empty() ? "depot access failed" : access.detail);
+  if (access.grants.empty()) return fail(InstallError::kRejected, "no depot granted");
+  measure.partial = !access.skipped.empty();
+  std::vector<ContentServer> servers;
+  const auto listed = hooks_.servers(session.cell_id.value_or(0), cancel, &servers);
+  if (listed == CdnError::kCanceled) return fail(InstallError::kCanceled, "canceled");
+  if (listed != CdnError::kNone || servers.empty()) return fail(InstallError::kNetwork, "no content servers");
+  // As Run: another server after a failure or a manifest that doesn't parse, with a pause between.
+  std::vector<DepotManifest> manifests(access.grants.size());
+  for (std::size_t index = 0; index < access.grants.size(); ++index) {
+    InstallError fetched = InstallError::kNetwork;
+    bool network_failed = false;
+    const std::size_t attempts = std::min<std::size_t>(std::max<std::size_t>(servers.size() * 2, 4), 6);
+    for (std::size_t attempt = 0; attempt < attempts; ++attempt) {
+      fetched = hooks_.manifest(servers[attempt % servers.size()], access.grants[index], cancel, &manifests[index]);
+      if (fetched != InstallError::kNetwork && fetched != InstallError::kCorrupt) break;
+      network_failed = network_failed || fetched == InstallError::kNetwork;
+      if (hooks_.pause && attempt + 1 < attempts) hooks_.pause(1000 << std::min<std::size_t>(attempt, 3), cancel);
+      if (cancel.load()) return fail(InstallError::kCanceled, "canceled");
+    }
+    // As Run: broken only after a server failed to send it at all is a network problem, which a later try gets past.
+    if (fetched == InstallError::kCorrupt && network_failed) fetched = InstallError::kNetwork;
+    if (fetched != InstallError::kNone) return fail(fetched, "manifest unavailable");
+  }
+  const auto merged = MergeDepotManifests(manifests);
+  if (!merged.conflict.empty()) return fail(InstallError::kCorrupt, "conflicting depots");
+  measure.error = InstallError::kNone;
+  measure.install_bytes = merged.install_bytes;
+  measure.download_bytes = merged.download_bytes;
+  return measure;
 }
 
 InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTarget& target,
@@ -744,54 +840,16 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   stats.manifests_ms = Milliseconds(Clock::now() - phase_start);
   phase_start = Clock::now();
   trace("merge");
-  // Later depots replace the same path from earlier ones; identical copies stay with the first. A file and a
-  // folder of the same name keep the file, as Steam does (Fallout 2's base depot has an empty master.dat
-  // folder that its language depot fills with the real master.dat), unless something lands inside the folder.
-  // A link is not a file here: it never displaces a folder. Every such clash is logged with both entries.
-  const auto entry = [&manifests](std::size_t depot, const ManifestFile& file) {
-    std::string text = "depot=" + std::to_string(manifests[depot].depot_id) + " ";
-    if (file.is_directory()) text += "folder";
-    else if (file.is_symlink()) text += "link";
-    else text += "file size=" + std::to_string(file.size);
-    return text + " path=" + file.path;
-  };
+  // As MergeDepotManifests lays the files out; every clash of a file and a folder is logged with both entries.
   std::size_t merge_lines = 0;
   const auto log_merge = [&](const char* result, const std::string& detail) {
     if (hooks_.merge && ++merge_lines <= kMergeLogLimit) hooks_.merge(result, detail);
   };
-  std::map<std::string, Placement> placements;
-  struct FileOverFolder { std::string key, folder; };
-  std::vector<FileOverFolder> files_over_folders;
-  for (std::size_t depot = 0; depot < manifests.size(); ++depot) {
-    for (const auto& file : manifests[depot].files) {
-      const auto key = Lower(file.path);
-      const auto found = placements.find(key);
-      if (found != placements.end()) {
-        if (SameFile(*found->second.file, file)) continue;
-        if (found->second.file->is_directory() != file.is_directory()) {
-          const auto& folder = file.is_directory() ? file : *found->second.file;
-          const auto& other = file.is_directory() ? *found->second.file : file;
-          const auto detail = entry(found->second.depot, *found->second.file) + " | " + entry(depot, file);
-          if (other.is_symlink()) {
-            log_merge("link-over-folder", detail);
-            return fail(InstallError::kCorrupt, ("conflicting depots " + file.path).c_str());
-          }
-          log_merge("file-over-folder", detail);
-          files_over_folders.push_back({key, folder.path});
-          if (file.is_directory()) continue;
-        }
-      }
-      placements[key] = {depot, &file};
-    }
-  }
-  for (const auto& [key, folder] : files_over_folders) {
+  auto merged = MergeDepotManifests(manifests, log_merge);
+  if (!merged.conflict.empty()) return fail(InstallError::kCorrupt, ("conflicting depots " + merged.conflict).c_str());
+  const auto& placements = merged.placements;
+  for (const auto& [key, folder] : merged.files_over_folders) {
     const auto& winner = placements.at(key);
-    const auto inside = placements.lower_bound(key + "/");
-    if (inside != placements.end() && inside->first.compare(0, key.size() + 1, key + "/") == 0) {
-      log_merge("folder-not-empty", entry(winner.depot, *winner.file) + " | " +
-                                        entry(inside->second.depot, *inside->second.file));
-      return fail(InstallError::kCorrupt, ("conflicting depots " + winner.file->path).c_str());
-    }
     // An earlier install may have left the folder on disk; an empty one makes way for the file. An update
     // leaves the game alone until it puts its files in place.
     if (target.update) continue;

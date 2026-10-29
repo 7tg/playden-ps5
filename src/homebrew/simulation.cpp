@@ -2357,6 +2357,12 @@ void Simulation::leave_steam_sign_in() {
 
 void Simulation::clear_account_specific_state() {
     ++state_.account_generation;
+    // Sizes follow the account's licenses; a check asked for the last account is never answered.
+    size_checks_.clear();
+    size_checks_running_.clear();
+    size_checks_answered_.clear();
+    size_checks_failed_.clear();
+    measured_sizes_.clear();
     state_.account().challenge_url.clear();
     state_.account().challenge_expiry = 0;
     state_.account().last_sync = 0;
@@ -2542,6 +2548,48 @@ const GameVersion* Simulation::install_sized_version(GameId id) const {
     return nullptr;
 }
 
+SizeCheckRequest Simulation::install_size_check(GameId id) const {
+    const auto* version = install_sized_version(id);
+    // The language as an install asks for it (the sheet's choice, else Settings'): each part of the game falls
+    // back from it on its own.
+    return {id, version ? version->name : std::string("public"),
+            install_language_.empty() ? state_.content_language : install_language_};
+}
+
+void Simulation::ResetSizeChecks() {
+    size_checks_.clear();
+    size_checks_running_.clear();
+    size_checks_failed_.clear();
+    rebuild_view();
+}
+
+const MeasuredInstallSize* Simulation::measured_install_size(GameId id) const {
+    const auto check = install_size_check(id);
+    const auto found = measured_sizes_.find({check.id, check.branch, check.language});
+    return found == measured_sizes_.end() ? nullptr : &found->second;
+}
+
+bool Simulation::install_size_checking(GameId id) const {
+    const auto check = install_size_check(id);
+    return size_checks_running_.count({check.id, check.branch, check.language}) > 0;
+}
+
+InstallAssessment Simulation::install_assessment(GameId id) const {
+    return assess_install(state_, id, install_target(), steam::kInstallSpaceMargin, install_sized_version(id),
+                          install_language(id), measured_install_size(id));
+}
+
+std::vector<SizeCheckRequest> Simulation::TakeSizeChecks() { return std::exchange(size_checks_, {}); }
+
+void Simulation::UpdateMeasuredSize(const SizeCheckRequest& request, bool measured, bool failed, MeasuredInstallSize size) {
+    const auto key = std::make_tuple(request.id, request.branch, request.language);
+    size_checks_running_.erase(key);
+    if (failed) size_checks_failed_.insert(key);
+    else size_checks_answered_.insert(key);
+    if (measured && size.install_bytes) measured_sizes_[key] = size;
+    rebuild_view();
+}
+
 std::vector<std::string> Simulation::live_install_sheet_actions(GameId id) const {
     const auto* game = find_game(state_, id);
     std::vector<std::string> actions{"install-confirm"};
@@ -2592,6 +2640,11 @@ bool Simulation::UpdateAppDetails(GameId id, std::optional<std::uint64_t> downlo
                                   std::optional<bool> windows_installable, std::vector<std::string> languages,
                                   std::uint32_t dlc_count, std::vector<GameVersion> versions, GameUpdate update) {
     if (!live()) return false;
+    // New details may name other files (a newer build): the game's exact sizes are checked again.
+    const auto of_game = [id](const auto& key) { return std::get<0>(key) == id; };
+    std::erase_if(size_checks_answered_, of_game);
+    std::erase_if(size_checks_failed_, of_game);
+    std::erase_if(measured_sizes_, [id](const auto& entry) { return std::get<0>(entry.first) == id; });
     const auto game = std::find_if(state_.games.begin(), state_.games.end(),
                                    [id](const Game& candidate) { return candidate.id == id; });
     if (game == state_.games.end()) return false;
@@ -4203,6 +4256,10 @@ void Simulation::rebuild_view() {
                                !queue_return_focus_.empty();
     if (state_.navigation.route != Route::Downloads && !queue_details) queue_shown_ = false;
     if (state_.navigation.route != Route::Downloads && !queue_details) queue_return_focus_.clear();
+    // A size check that failed is asked again when the install sheet opens next, not while it stays open.
+    if (!rebuilding_overlay_ && std::none_of(state_.navigation.modals.begin(), state_.navigation.modals.end(),
+                                             [](const ModalEntry& modal) { return modal.id == "install"; }))
+        size_checks_failed_.clear();
     view_.surface = route_name(state_.navigation.route);
     view_.show_simulation_label = state_.simulation_mode;
     if (state_.editor.active) view_.surface = "keyboard";
@@ -4289,17 +4346,26 @@ void Simulation::rebuild_view() {
         if (modal.id == "install" && live()) {
             // Shown when the game does not fit as is: say why, and where it would go.
             const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-            const auto assessment = assess_install(state_, id, install_target(), steam::kInstallSpaceMargin, install_sized_version(id),
-                                                   install_language(id));
+            // Steam's figures add up each part of the game; its exact size, once checked, replaces them.
+            const auto check = install_size_check(id);
+            const auto key = std::make_tuple(check.id, check.branch, check.language);
+            if (!size_checks_running_.count(key) && !size_checks_answered_.count(key) && !size_checks_failed_.count(key)) {
+                size_checks_.push_back(check);
+                size_checks_running_.insert(key);
+            }
+            const auto assessment = install_assessment(id);
+            const bool checking = install_size_checking(id);
+            const bool exact = measured_install_size(id) != nullptr;
             const auto* volume = find_volume(state_, install_target());
             const auto* fallback = find_volume(state_, selected_volume_id_);
             view_.subtitle = "To " + (volume ? volume->label : std::string("unavailable storage")) +
                 (install_volume_id_.empty() ? "" : " (this game only)") + ". ";
             view_.subtitle += assessment.free_bytes ? format_bytes(*assessment.free_bytes) + " free. " : "";
             view_.subtitle += assessment.installed_bytes
-                ? "Needs about " + format_bytes(*assessment.installed_bytes) + ". "
+                ? (exact ? "Needs " : "Needs about ") + format_bytes(*assessment.installed_bytes) + ". "
                 : "Its size is checked when the download starts. ";
-            if (assessment.readiness == InstallReadiness::Insufficient) view_.subtitle += "Not enough space: choose another drive or free up space.";
+            if (assessment.readiness == InstallReadiness::Insufficient && checking) view_.subtitle += "Checking its exact size…";
+            else if (assessment.readiness == InstallReadiness::Insufficient) view_.subtitle += "Not enough space: choose another drive or free up space.";
             else if (assessment.readiness == InstallReadiness::Unavailable) view_.subtitle += "This drive is disconnected.";
             else if (assessment.readiness == InstallReadiness::ReadOnly) view_.subtitle += "This drive is read-only.";
             else if (assessment.readiness == InstallReadiness::UnknownCapacity)
@@ -5051,14 +5117,12 @@ void Simulation::rebuild_view() {
             else if (action_key == "install-confirm" || action_key == "install-estimate-retry") {
                 const auto id = live() ? state_.navigation.detail_id.value_or(state_.navigation.selected_game_id)
                                        : state_.navigation.selected_game_id;
-                const auto assessment = assess_install(state_, id, live() ? install_target() : selected_volume_id_,
-                                                       live() ? steam::kInstallSpaceMargin : 0,
-                                                       live() ? install_sized_version(id) : nullptr,
-                                                       live() ? install_language(id) : std::string());
+                const auto assessment = live() ? install_assessment(id) : assess_install(state_, id, selected_volume_id_);
                 if (action_key == "install-estimate-retry") item.enabled = assessment.readiness == InstallReadiness::UnknownSize;
                 else if (live()) {
                     item.enabled = live_install_allowed(assessment.readiness, free_space_supported_);
-                    item.subtitle = assessment.readiness == InstallReadiness::Insufficient ? "Not enough space"
+                    item.subtitle = assessment.readiness == InstallReadiness::Insufficient && install_size_checking(id) ? "Checking size"
+                        : assessment.readiness == InstallReadiness::Insufficient ? "Not enough space"
                         : assessment.readiness == InstallReadiness::Unavailable ? "Drive disconnected"
                         : assessment.readiness == InstallReadiness::ReadOnly ? "Drive is read-only"
                         : assessment.readiness == InstallReadiness::UnknownCapacity && free_space_supported_ ? "Free space unknown"
@@ -7283,10 +7347,7 @@ void Simulation::activate() {
     } else if (action_name == "install-confirm") {
         const auto id = live() ? state_.navigation.detail_id.value_or(state_.navigation.selected_game_id)
                                : state_.navigation.selected_game_id;
-        const auto assessment = assess_install(state_, id, live() ? install_target() : selected_volume_id_,
-                                               live() ? steam::kInstallSpaceMargin : 0,
-                                               live() ? install_sized_version(id) : nullptr,
-                                               live() ? install_language(id) : std::string());
+        const auto assessment = live() ? install_assessment(id) : assess_install(state_, id, selected_volume_id_);
         if (live()) {
             if (live_install_allowed(assessment.readiness, free_space_supported_)) {
                 if (id.valid())

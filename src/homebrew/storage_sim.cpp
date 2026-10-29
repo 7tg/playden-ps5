@@ -26,7 +26,8 @@ std::uint64_t add_saturated(std::uint64_t left, std::uint64_t right) noexcept {
 
 InstallAssessment assess_install(const State& state, GameId game_id,
                                   const std::string& volume_id, std::uint64_t safety_margin_bytes,
-                                  const GameVersion* version, const std::string& language) noexcept {
+                                  const GameVersion* version, const std::string& language,
+                                  const MeasuredInstallSize* measured) noexcept {
     InstallAssessment result;
     const auto game = find_item(state.games, [game_id](const Game& value) {
         return value.id == game_id;
@@ -44,6 +45,10 @@ InstallAssessment assess_install(const State& state, GameId game_id,
                     result.download_bytes = size.download_bytes ? std::optional<std::uint64_t>(size.download_bytes) : std::nullopt;
                     result.installed_bytes = size.install_bytes;
                 }
+        if (measured != nullptr && measured->install_bytes) {
+            result.installed_bytes = measured->install_bytes;
+            if (measured->download_bytes) result.download_bytes = measured->download_bytes;
+        }
         if (result.installed_bytes) result.required_bytes = add_saturated(*result.installed_bytes, safety_margin_bytes);
     }
 
