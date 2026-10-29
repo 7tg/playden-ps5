@@ -37,7 +37,8 @@ namespace playden::homebrew {
 std::string FormatDownloadRate(std::optional<std::uint64_t> rate, std::optional<int> eta, const std::string& server_name) {
     if (!rate) return "—";
     char text[64];
-    std::snprintf(text, sizeof(text), "%.1f MB/s", static_cast<double>(*rate) / (1024.0 * 1024.0));
+    // Decimal megabytes, as the sizes beside it and the download server picker.
+    std::snprintf(text, sizeof(text), "%.1f MB/s", static_cast<double>(*rate) / 1e6);
     std::string result = server_name.empty() ? std::string(text) : server_name + " · " + text;
     result += " · ";
     if (!eta || *eta < 0) return result + "—";

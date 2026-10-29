@@ -1468,7 +1468,7 @@ void synthetic_download_servers(const std::filesystem::path& fixtures, const std
               playden::homebrew::FormatDownloadRate(restarted.state().jobs.front().bytes_per_second,
                                                     restarted.state().jobs.front().eta_seconds,
                                                     restarted.state().jobs.front().server_name) ==
-                  "Fastly · 17.4 MB/s · ~3 min left",
+                  "Fastly · 18.2 MB/s · ~3 min left",
           "the Queue row names the download server");
 }
 

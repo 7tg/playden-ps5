@@ -200,8 +200,9 @@ std::string byte_count(std::optional<std::uint64_t> bytes)
 {
     if (!bytes)
         return "Unknown";
-    constexpr double mib = 1024.0 * 1024.0;
-    constexpr double gib = 1024.0 * mib;
+    // Decimal units, as the rest of Playden (game pages, sheets, storage) and macOS show sizes.
+    constexpr double mib = 1000.0 * 1000.0;
+    constexpr double gib = 1000.0 * mib;
     std::array<char, 32> value{};
     // Below a gigabyte, megabytes: "0.2 GB" says little about a small game.
     if (*bytes < static_cast<std::uint64_t>(gib))
